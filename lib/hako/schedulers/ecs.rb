@@ -167,6 +167,44 @@ module Hako
         end
       end
 
+      # @param [Hash<String, Container>] containers
+      # @return [nil]
+      def canary_deploy(containers)
+        front_port = determine_front_port
+        unless @dry_run
+          ecs_elb_client.find_or_create_load_balancer(front_port)
+        end
+        @scripts.each { |script| script.deploy_started(containers, front_port) }
+        definitions = create_definitions(containers)
+
+        if @dry_run
+          volumes_definition.each do |d|
+            print_volume_definition_in_cli_format(d)
+          end
+          definitions.each do |d|
+            print_definition_in_cli_format(d)
+            check_secrets(d)
+          end
+          ecs_elb_client.modify_attributes
+          if @service_discovery
+            @service_discovery.apply
+          end
+        else
+          current_service = describe_service
+          task_definition_changed, task_definition = register_task_definition(definitions)
+          if task_definition_changed
+            Hako.logger.info "Registered task definition: #{task_definition.task_definition_arn}"
+          else
+            Hako.logger.info "Task definition isn't changed: #{task_definition.task_definition_arn}"
+          end
+          @task = run_canary_task(task_definition)
+          Hako.logger.info "Started task: #{@task.task_arn}"
+          ## TODO: attach target group
+          ecs_elb_client.modify_attributes
+          Hako.logger.info 'Deployment completed'
+        end
+      end
+
       def rollback
         current_service = describe_service
         unless current_service
@@ -675,6 +713,41 @@ module Hako
           count: 1,
           placement_constraints: @placement_constraints,
           started_by: 'hako oneshot',
+          launch_type: @launch_type,
+          platform_version: @platform_version,
+          network_configuration: @network_configuration,
+        )
+        result.failures.each do |failure|
+          Hako.logger.error("#{failure.arn} #{failure.reason}")
+        end
+        if result.tasks.empty?
+          raise NoTasksStarted.new('No tasks started')
+        end
+
+        result.tasks[0]
+      rescue Aws::ECS::Errors::InvalidParameterException => e
+        if e.message == 'No Container Instances were found in your cluster.' && on_no_tasks_started(task_definition)
+          retry
+        else
+          raise e
+        end
+      rescue NoTasksStarted => e
+        if on_no_tasks_started(task_definition)
+          retry
+        else
+          raise e
+        end
+      end
+
+      # @param [Aws::ECS::Types::TaskDefinition] task_definition
+      # @return [Aws::ECS::Types::Task]
+      def run_canary_task(task_definition)
+        result = ecs_client.run_task(
+          cluster: @cluster,
+          task_definition: task_definition.task_definition_arn,
+          count: 1,
+          placement_constraints: @placement_constraints,
+          started_by: 'canary',
           launch_type: @launch_type,
           platform_version: @platform_version,
           network_configuration: @network_configuration,

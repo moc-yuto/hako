@@ -73,7 +73,8 @@ module Hako
           else
             {}
           end
-        Commander.new(Application.new(@definition_path, options)).deploy(force: @force, tag: @tag, dry_run: @dry_run, timeout: @timeout)
+        Commander.new(Application.new(@definition_path, options))
+          .deploy(force: @force, tag: @tag, dry_run: @dry_run, timeout: @timeout, canary: @canary)
       end
 
       DEFAULT_TIMEOUT = 1200 # 20 minutes
@@ -83,6 +84,7 @@ module Hako
         @dry_run = false
         @verbose = false
         @timeout = DEFAULT_TIMEOUT
+        @canary = false
         parser.parse!(argv)
         @definition_path = argv.first
 
@@ -101,6 +103,7 @@ module Hako
           opts.on('-n', '--dry-run', 'Enable dry-run mode') { @dry_run = true }
           opts.on('-v', '--verbose', 'Enable verbose logging') { @verbose = true }
           opts.on('--timeout=TIMEOUT_SEC', "Timeout deployment after TIMEOUT_SEC seconds (default: #{DEFAULT_TIMEOUT})") { |v| @timeout = v.to_i }
+          opts.on('--canary', 'canary deploy') { @canary = true }
         end
       end
     end

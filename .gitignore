@@ -7,5 +7,7 @@
 /pkg/
 /spec/reports/
 /tmp/
+/vendor/
+/bundle_bin/
 
 spec/examples.txt

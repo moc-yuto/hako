@@ -17,16 +17,24 @@ module Hako
     # @param [Boolean] force
     # @param [String, nil] tag
     # @param [Boolean] dry_run
+    # @param [Integer] nil
+    # @param [Boolean] canary
     # @return [nil]
-    def deploy(force: false, tag:, dry_run: false, timeout:)
+    def deploy(force: false, tag:, dry_run: false, timeout:, canary: false)
       containers = load_containers(tag, dry_run: dry_run)
       scripts = @app.definition.fetch('scripts', []).map { |config| load_script(config, dry_run: dry_run) }
       volumes = @app.definition.fetch('volumes', {})
       scheduler = load_scheduler(@app.definition['scheduler'], scripts, volumes: volumes, force: force, dry_run: dry_run, timeout: timeout)
 
-      scripts.each { |script| script.deploy_starting(containers) }
-      scheduler.deploy(containers)
-      scripts.each { |script| script.deploy_finished(containers) }
+      if canary
+        scripts.each { |script| script.deploy_starting(containers) }
+        scheduler.canary_deploy(containers)
+        scripts.each { |script| script.deploy_finished(containers) }  
+      else
+        scripts.each { |script| script.deploy_starting(containers) }
+        scheduler.deploy(containers)
+        scripts.each { |script| script.deploy_finished(containers) }
+      end
       nil
     end
 
